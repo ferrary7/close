@@ -3,21 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "npm run generate:sw && next dev",
+    "build": "npm run generate:sw && next build",
+    "export": "next export",
+    "build:pwa": "npm run generate:sw && next build && next export",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy": "npm run build:pwa && firebase deploy",
+    "generate:sw": "node scripts/generate-sw.js"
   },
   "dependencies": {
+    "firebase": "^11.9.1",
+    "next": "15.3.4",
+    "next-pwa": "^5.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.4"
+    "react-hot-toast": "^2.5.2",
+    "react-icons": "^5.5.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "dotenv": "^16.4.7",
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4"
   }
 }
