@@ -1,7 +1,7 @@
 // pages/index.js
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Toaster, toast } from 'react-hot-toast';
 import { onAuthStateChange, signInAnonymous } from '@/lib/auth';
@@ -28,7 +28,7 @@ import LoadingScreen from '@/components/Loading';
 import PWAInstallPrompt from '@/components/PWAInstallPrompt';
 import { FiSettings, FiLogOut, FiShare, FiCopy } from 'react-icons/fi';
 
-export default function Home() {
+function HomeContent() {
   const [user, setUser] = useState(null);
   const [room, setRoom] = useState(null);
   const [roomData, setRoomData] = useState(null);
@@ -546,5 +546,26 @@ export default function Home() {
       <PWAInstallPrompt />
       <Toaster />
     </div>
+  );
+}
+
+// Loading component for Suspense fallback
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="text-center text-white">
+        <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full mx-auto mb-4 animate-spin"></div>
+        <p className="text-lg font-medium">Loading CLOSE...</p>
+      </div>
+    </div>
+  );
+}
+
+// Main component with Suspense wrapper
+export default function Home() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <HomeContent />
+    </Suspense>
   );
 }
