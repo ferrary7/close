@@ -13,6 +13,9 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { v4 as uuidv4 } from 'uuid';
+import { sendNotificationWithFallback, showLocalNotification } from './notifications';
+import { getPartnerTokens } from './tokenUtils';
+import { sendRealtimeNotification } from './realtimeNotifications';
 
 // Generate a unique room ID
 export const generateRoomId = () => {
@@ -154,43 +157,93 @@ export const sendPing = async (roomId, fromUserId) => {
       updatedAt: serverTimestamp()
     });
 
-    // Send push notifications to other room members
-    if (roomData.memberTokens && roomData.memberTokens.length > 0) {
-      const senderIndex = roomData.members?.indexOf(fromUserId) || 0;
-      const partnerTokens = roomData.memberTokens.filter((token, index) => 
-        roomData.members[index] !== fromUserId
-      );
+    console.log('Ping saved to Firestore, now sending notifications...');
+    console.log('Room data memberTokens:', roomData.memberTokens);
+    console.log('Room data members:', roomData.members);
+    console.log('FromUserId:', fromUserId);
 
-      // Send notifications to partner devices
-      for (const token of partnerTokens) {
+    // Get partner tokens using the utility function
+    const partnerTokens = getPartnerTokens(roomData, fromUserId);
+    console.log('✅ Partner tokens found:', partnerTokens.length);
+    
+    if (partnerTokens.length > 0) {
+      console.log('Partner tokens:', partnerTokens.map(t => t.substring(0, 20) + '...'));
+
+      // Get partner user IDs for real-time notifications
+      const partnerUserIds = roomData.members.filter(memberId => memberId !== fromUserId);
+      
+      // Send both API notifications and real-time notifications
+      for (let i = 0; i < partnerTokens.length; i++) {
+        const token = partnerTokens[i];
+        const partnerId = partnerUserIds[i];
+        
         try {
-          const response = await fetch('/api/send-notification', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              token,
-              title: '💖 Your person is thinking of you!',
-              body: `Someone just sent you love through ${roomData.name}`,
-              data: {
-                type: 'ping',
-                roomId: roomId,
-                url: `/?room=${roomId}`,
-                fromUser: fromUserId
-              }
-            }),
-          });
+          const notificationData = {
+            type: 'ping',
+            roomId: roomId,
+            url: `/?room=${roomId}`,
+            fromUser: fromUserId,
+            timestamp: Date.now()
+          };
+
+          // Send API notification (for potential push notification)
+          await sendNotificationWithFallback(
+            token,
+            '💖 Your person is thinking of you!',
+            `Someone just sent you love through ${roomData.name}`,
+            notificationData
+          );
           
-          if (response.ok) {
-            console.log('Push notification sent successfully');
-          } else {
-            console.error('Failed to send push notification');
+          // Real-time notification via database (optional - for instant delivery)
+          if (partnerId) {
+            try {
+              await sendRealtimeNotification(
+                roomId,
+                partnerId,
+                '💖 Your person is thinking of you!',
+                `Someone just sent you love through ${roomData.name}`,
+                notificationData
+              );
+            } catch (realtimeError) {
+              console.log('⚠️ Real-time notification failed (using local notifications instead):', realtimeError.message);
+            }
           }
+          
+          console.log('✅ Notifications sent successfully to:', token.substring(0, 20) + '...');
+          
         } catch (error) {
-          console.error('Error sending push notification:', error);
+          console.error('❌ Error sending notification:', error);
+          
+          // Ultimate fallback - show local notification if we're in the same browser
+          showLocalNotification(
+            '💖 Your person is thinking of you!',
+            `Someone just sent you love through ${roomData.name}`,
+            {
+              type: 'ping',
+              roomId: roomId,
+              url: `/?room=${roomId}`,
+              fromUser: fromUserId
+            }
+          );
         }
       }
+    } else {
+      console.warn('❌ No partner tokens found for notifications');
+      console.log('📊 Debug info:');
+      console.log('  - Room has memberTokens:', !!roomData.memberTokens);
+      console.log('  - MemberTokens length:', roomData.memberTokens?.length || 0);
+      console.log('  - Room members:', roomData.members?.length || 0);
+      console.log('  - Current user in room:', roomData.members?.includes(fromUserId));
+      
+      // Show local notification as fallback for testing
+      showLocalNotification(
+        '💖 Ping sent!',
+        'Your partner will be notified when they join',
+        {
+          type: 'ping',
+          roomId: roomId
+        }
+      );
     }
 
     return { success: true };

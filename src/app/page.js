@@ -14,6 +14,8 @@ import {
   sendPing,
   subscribeToRoom
 } from '@/lib/roomUtils';
+import { updateUserTokenInRoom } from '@/lib/tokenUtils';
+import { listenForNotifications } from '@/lib/realtimeNotifications';
 import {
   requestNotificationPermission,
   onMessageListener
@@ -88,9 +90,18 @@ function HomeContent() {
     };
   }, []);
 
+  // Update user token in room when token or room changes
+  useEffect(() => {
+    if (userToken && room && user) {
+      console.log('🔄 Updating user token in room:', room);
+      updateUserTokenInRoom(room, user.uid, userToken);
+    }
+  }, [userToken, room, user]);
+
   useEffect(() => {
     let unsubscribeRoom;
     let unsubscribePhotos;
+    let unsubscribeNotifications;
 
     if (room && user) {
       unsubscribeRoom = subscribeToRoom(room, (data) => {
@@ -119,11 +130,19 @@ function HomeContent() {
           setPhotos([]);
         }
       });
+
+      // Listen for real-time notifications
+      unsubscribeNotifications = listenForNotifications(room, user.uid, (notification) => {
+        console.log('🔔 Received real-time notification:', notification.title);
+        // Additional handling if needed
+        toast.success('💖 New notification received!');
+      });
     }
 
     return () => {
       if (unsubscribeRoom) unsubscribeRoom();
       if (unsubscribePhotos) off(ref(realtimeDb, `rooms/${room}/photos`), 'value', unsubscribePhotos);
+      if (unsubscribeNotifications) unsubscribeNotifications();
     };
   }, [room, user]);
 
@@ -168,6 +187,84 @@ function HomeContent() {
       document.title = 'CLOSE - Stay Connected';
     }
   }, [roomData]);
+
+  // Real-time ping notification listener
+  useEffect(() => {
+    if (!roomData || !user) return;
+
+    let lastPingCount = roomData.pingHistory?.length || 0;
+    console.log('Setting up ping listener. Current ping count:', lastPingCount);
+
+    const checkForNewPings = () => {
+      if (roomData.pingHistory && roomData.pingHistory.length > lastPingCount) {
+        const newPings = roomData.pingHistory.slice(lastPingCount);
+        console.log('New pings detected:', newPings);
+        
+        newPings.forEach(ping => {
+          console.log('Processing ping from:', ping.from, 'Current user:', user.uid);
+          
+          // Only show notification if ping is from someone else
+          if (ping.from !== user.uid) {
+            console.log('New ping received from partner! Showing notification...');
+            
+            // Show local notification immediately
+            if ('Notification' in window && Notification.permission === 'granted') {
+              const notification = new Notification('💖 Your person is thinking of you!', {
+                body: `Someone just sent you love through ${roomData.name}`,
+                icon: '/icons/icon-192x192.png',
+                badge: '/icons/icon-72x72.png',
+                tag: 'close-ping',
+                requireInteraction: true,
+                vibrate: [200, 100, 200, 100, 200],
+                data: {
+                  type: 'ping',
+                  roomId: room,
+                  timestamp: Date.now()
+                }
+              });
+              console.log('Native notification created');
+            } else {
+              console.log('Notification permission not granted or not supported');
+            }
+            
+            // Also show toast notification
+            toast.custom((t) => (
+              <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} 
+                max-w-md w-full bg-gradient-to-r from-pink-400 to-orange-400 
+                shadow-lg rounded-lg pointer-events-auto flex ring-1 ring-black ring-opacity-5`}>
+                <div className="flex-1 w-0 p-4">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0 pt-0.5">
+                      <span className="text-2xl">💖</span>
+                    </div>
+                    <div className="ml-3 flex-1">
+                      <p className="text-sm font-medium text-white">
+                        Your person just pinged you!
+                      </p>
+                      <p className="mt-1 text-sm text-orange-100">
+                        Someone is thinking of you!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ), {
+              duration: 5000,
+              position: 'top-center',
+            });
+            console.log('Toast notification shown');
+          } else {
+            console.log('Ping is from current user, not showing notification');
+          }
+        });
+        
+        lastPingCount = roomData.pingHistory.length;
+        console.log('Updated lastPingCount to:', lastPingCount);
+      }
+    };
+
+    checkForNewPings();
+  }, [roomData, user, room]);
 
   const handleCreateRoom = async (roomName, password) => {
     if (!user) return;
@@ -544,6 +641,7 @@ function HomeContent() {
       </main>
 
       <PWAInstallPrompt />
+      
       <Toaster />
     </div>
   );

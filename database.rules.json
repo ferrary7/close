@@ -1,5 +1,11 @@
 {
   "rules": {
+    "notifications": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
     "rooms": {
       "$roomId": {
         ".read": "auth != null",
