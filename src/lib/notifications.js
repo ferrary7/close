@@ -19,29 +19,100 @@ export const requestNotificationPermission = async () => {
       return null;
     }
 
-    // Register service worker first
+    // Register service worker first and wait for it to be ready
+    let registration;
     try {
-      const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
       console.log('✅ Service Worker registered successfully:', registration);
       
-      // Wait for the service worker to be ready
+      // Wait for the service worker to be ready and active
       await navigator.serviceWorker.ready;
       console.log('✅ Service Worker is ready');
+      
+      // Additional check for Android Chrome - ensure the service worker is active
+      if (registration.active && registration.active.state === 'activated') {
+        console.log('✅ Service Worker is active and ready for FCM');
+      } else {
+        // Wait a bit more for activation
+        await new Promise((resolve) => {
+          const checkActive = () => {
+            if (registration.active && registration.active.state === 'activated') {
+              resolve();
+            } else {
+              setTimeout(checkActive, 100);
+            }
+          };
+          checkActive();
+        });
+      }
     } catch (swError) {
       console.error('❌ Service Worker registration failed:', swError);
       return null;
     }
 
-    // Request permission
+    // Request permission with Android-specific handling
     let permission = Notification.permission;
+    console.log('🔔 Current notification permission:', permission);
+    
     if (permission === 'default') {
+      // For Android Chrome, we need to be more explicit and provide user context
+      console.log('🔔 Requesting notification permission (Android optimized)...');
+      
+      // Show a brief message before requesting permission on Android
+      if (navigator.userAgent.toLowerCase().includes('android')) {
+        console.log('📱 Detected Android device - optimizing permission request');
+      }
+      
       permission = await Notification.requestPermission();
+      console.log('🔔 Permission request result:', permission);
+      
+      // Additional check for Android Chrome
+      if (permission === 'granted') {
+        console.log('✅ Notification permission granted!');
+        
+        // Test notification to ensure it works on Android
+        try {
+          console.log('🧪 Testing notification on Android...');
+          
+          // Use service worker for testing on Android (preferred method)
+          if (registration && registration.showNotification) {
+            await registration.showNotification('🔔 Notifications Enabled!', {
+              body: 'You will now receive notifications from CLOSE',
+              icon: '/icons/icon-192x192.png',
+              badge: '/icons/icon-72x72.png',
+              tag: 'permission-test',
+              requireInteraction: false,
+              vibrate: [200, 100, 200],
+              silent: false,
+              timestamp: Date.now(),
+              data: { test: true }
+            });
+            console.log('✅ Service worker test notification shown');
+          } else {
+            // Fallback to regular notification
+            const testNotification = new Notification('🔔 Notifications Enabled!', {
+              body: 'You will now receive notifications from CLOSE',
+              icon: '/icons/icon-192x192.png',
+              tag: 'permission-test',
+              requireInteraction: false,
+              vibrate: [200, 100, 200]
+            });
+            setTimeout(() => testNotification.close(), 3000);
+            console.log('✅ Regular test notification shown');
+          }
+        } catch (testError) {
+          console.log('⚠️ Test notification failed (this is okay):', testError.message);
+        }
+      }
+    } else if (permission === 'denied') {
+      console.log('❌ Notification permission denied by user');
+      return null;
     }
     
-    console.log('🔔 Notification permission:', permission);
+    console.log('🔔 Final notification permission:', permission);
     
     if (permission === 'granted') {
-      console.log('✅ Notification permission granted');
+      console.log('✅ Notification permission granted, getting FCM token...');
       
       // Get FCM token
       const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
@@ -52,18 +123,38 @@ export const requestNotificationPermission = async () => {
       
       console.log('🔑 Using VAPID key:', vapidKey.substring(0, 10) + '...');
       
-      const currentToken = await getToken(messaging, { vapidKey });
-      
-      if (currentToken) {
-        console.log('✅ FCM Token obtained:', currentToken.substring(0, 20) + '...');
-        return currentToken;
-      } else {
-        console.log('❌ No registration token available');
-        // Additional debugging
-        console.log('🔍 Debug info:');
-        console.log('  - Messaging instance:', !!messaging);
-        console.log('  - VAPID key present:', !!vapidKey);
-        console.log('  - Service worker ready:', await navigator.serviceWorker.ready);
+      try {
+        const currentToken = await getToken(messaging, { 
+          vapidKey,
+          serviceWorkerRegistration: registration // Explicitly pass the registration
+        });
+        
+        if (currentToken) {
+          console.log('✅ FCM Token obtained successfully:', currentToken.substring(0, 20) + '...');
+          
+          // Additional validation for Android
+          if (navigator.userAgent.toLowerCase().includes('android')) {
+            console.log('📱 Android FCM token validated');
+          }
+          
+          return currentToken;
+        } else {
+          console.log('❌ No FCM registration token available');
+          console.log('🔍 Debug info:');
+          console.log('  - Messaging instance:', !!messaging);
+          console.log('  - VAPID key present:', !!vapidKey);
+          console.log('  - Service worker registration:', !!registration);
+          console.log('  - Service worker active:', !!registration?.active);
+          console.log('  - Permission:', permission);
+          return null;
+        }
+      } catch (tokenError) {
+        console.error('❌ Error getting FCM token:', tokenError);
+        console.log('🔍 Token error details:', {
+          code: tokenError.code,
+          message: tokenError.message,
+          name: tokenError.name
+        });
         return null;
       }
     } else {

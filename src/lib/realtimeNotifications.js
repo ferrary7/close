@@ -2,6 +2,61 @@ import { ref, push, onValue, off, serverTimestamp, get, update } from 'firebase/
 import { realtimeDb } from './firebase';
 import { showLocalNotification } from './notifications';
 
+// Android-optimized notification function
+const showAndroidOptimizedNotification = (title, body, data = {}) => {
+  console.log('📱 Showing Android-optimized notification:', { title, body });
+  
+  // Check if we have permission
+  if (Notification.permission !== 'granted') {
+    console.log('❌ Notification permission not granted');
+    return;
+  }
+  
+  // For Android Chrome, we need to ensure the notification shows properly
+  try {
+    // First try with service worker registration (best for Android)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(registration => {
+        registration.showNotification(title, {
+          body,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-72x72.png',
+          tag: 'close-realtime-' + Date.now(),
+          requireInteraction: true,
+          vibrate: [200, 100, 200, 100, 200],
+          data: {
+            ...data,
+            source: 'realtime',
+            timestamp: Date.now()
+          },
+          actions: [
+            {
+              action: 'open',
+              title: '💕 Open CLOSE'
+            }
+          ],
+          // Android-specific optimizations
+          silent: false,
+          renotify: true,
+          sticky: false
+        });
+        console.log('✅ Service worker notification shown');
+      }).catch(error => {
+        console.log('⚠️ Service worker notification failed, falling back to regular notification');
+        // Fallback to regular notification
+        showLocalNotification(title, body, data);
+      });
+    } else {
+      // Fallback for browsers without service worker support
+      showLocalNotification(title, body, data);
+    }
+  } catch (error) {
+    console.error('💥 Error showing Android notification:', error);
+    // Ultimate fallback
+    showLocalNotification(title, body, data);
+  }
+};
+
 // Send real-time notification through Firebase Realtime Database
 export const sendRealtimeNotification = async (roomId, targetUserId, title, body, data = {}) => {
   try {
@@ -63,8 +118,8 @@ export const listenForNotifications = (roomId, userId, onNotificationReceived) =
       ) {
         console.log('🔔 New notification received:', notification.title);
         
-        // Show the notification
-        showLocalNotification(
+        // Show notification with Android-optimized settings
+        showAndroidOptimizedNotification(
           notification.title,
           notification.body,
           notification.data
